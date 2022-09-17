@@ -4,12 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/go-resty/resty/v2"
+	"github.com/tidwall/gjson"
 	"log"
 	"net/http"
 	"strconv"
-
-	"github.com/go-resty/resty/v2"
-	"github.com/tidwall/gjson"
 )
 
 const (
@@ -49,36 +48,39 @@ func main() {
 		log.Println("token 为空, 请继续输入token, 或者直接使用 -token 参数")
 		fmt.Scanf("%s", &token)
 	}
-	for i := 0; i < times; i++ {
+	for {
 		go func() {
+			ch <- true
 			ctx := context.Background()
-			if err := Send(ctx, token); err != nil {
+			if err := Send(ctx, token, ch); err != nil {
 				log.Println(err)
+				return
 			}
 			successTimes++
-			ch <- true
+			fmt.Println("成功次数共", successTimes)
 		}()
 	}
-	for i := 0; i < times; i++ {
-		<-ch
-	}
-	log.Println("程序结束, 通关成功次数", successTimes)
 }
 
-func Send(ctx context.Context, theToken string) error {
+func Send(ctx context.Context, theToken string, ch chan bool) error {
 	var (
 		resp   *resty.Response
 		err    error
 		result gjson.Result
 	)
-	if resp, err = client.R().SetContext(ctx).SetHeader("t", theToken).Get("/sheep/v1/game/game_over"); err != nil {
+	resp, err = client.R().SetContext(ctx).SetHeader("t", theToken).Get("/sheep/v1/game/game_over")
+	if err != nil {
+		<-ch
 		return fmt.Errorf("请求失败: %v", err)
 	}
 	if resp.StatusCode() != http.StatusOK {
+		<-ch
 		return fmt.Errorf("[%d] 请求错误: %s", resp.StatusCode(), resp.String())
 	}
 	if result = gjson.Parse(resp.String()); result.Get("err_code").Int() != 0 {
+		<-ch
 		return fmt.Errorf("请求错误: %s", resp.String())
 	}
+	<-ch
 	return nil
 }
